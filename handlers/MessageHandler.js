@@ -14,6 +14,21 @@ class MessageHandler {
         this.minimumPermissions = ['readMessages', 'sendMessages'];
     }
 
+
+    //custom messages
+    getCustomLocale(k, sk) {
+        let chariotConfig = this.chariot.chariotOptions.chariotConfig
+        if (!chariotConfig.customLocales) return false
+
+        if (sk) {
+            if (!chariotConfig.customLocales[k]) return false
+
+            return chariotConfig.customLocales[k][sk]
+        } else {
+            return chariotConfig.customLocales[k]
+        }
+    }
+
     /**
      * This method handles messages and checks their content for valid commands.
      * If a valid command was found, the command file will be checked for its instantiated properties and then executed.
@@ -22,9 +37,9 @@ class MessageHandler {
      * @param {Chariot.Collection} commands A collection containing all registered commands 
      */
     async handle(message, commands) {
-        const commandArguments  = message.content.slice(message.prefix.length).split(/ +/);
-        const commandName       = commandArguments.shift().toLowerCase();
-        const command           = commands.get(commandName) || commands.find(chariotCommand => chariotCommand.aliases && chariotCommand.aliases.includes(commandName));
+        const commandArguments = message.content.slice(message.prefix.length).split(/ +/);
+        const commandName = commandArguments.shift().toLowerCase();
+        const command = commands.get(commandName) || commands.find(chariotCommand => chariotCommand.aliases && chariotCommand.aliases.includes(commandName));
 
         /* Stop handling if no command was found */
         if (!command) return;
@@ -34,6 +49,7 @@ class MessageHandler {
 
         /* Enable permission check for guild messages */
         if (message.channel.type === 0) {
+
             /* Check if the bot has adequate permissions */
             const pendingPermissions = (!command.permissions) ? this.minimumPermissions : this.minimumPermissions.concat(command.permissions);
             let missingPermissions = [];
@@ -45,13 +61,13 @@ class MessageHandler {
             }
 
             if (missingPermissions.length) {
-                return message.channel.createMessage(`Can't run command **${command.name}** because I lack following permissions: **${missingPermissions.join(', ')}**`).catch((messageSendError) => {
+                return message.channel.createMessage(this.getCustomLocale("missingPermissions") ? this.getCustomLocale("missingPermissions").replace("{command}", command.name).replace("{missingPermissions}", missingPermissions.join(', ')) : `Can't run command **${command.name}** because I lack following permissions: **${missingPermissions.join(', ')}**`).catch((messageSendError) => {
                     Logger.warning('MUTED', `Can't send messages in #${message.channel.name} (${message.channel.id})`);
                 });
             }
 
             /* Check if the user has adequate permissions */
-            const pendingUserPermissions = (!command.userPermissions) ? false : command.userPermissions.permissions;
+            const pendingUserPermissions = (!command.userPermissions) ? false : command.userPermissions;
             let missingUserPermissions = [];
 
             if (pendingUserPermissions) {
@@ -65,10 +81,10 @@ class MessageHandler {
             if (missingUserPermissions.length) {
                 return message.channel.createEmbed(new Embed()
                     .setColor('RED')
-                    .setTitle(command.userPermissions.title ? command.userPermissions.title : 'Insufficient Permissions!')
-                    .setDescription(command.userPermissions.description ? command.userPermissions.description.replace("{missingUserPermissions}", missingUserPermissions.join(', ')) : `You lack following permissions to use this command: **${missingUserPermissions.join(', ')}**`)
+                    .setTitle(this.getCustomLocale("userPermissions", "title") ? this.getCustomLocale("userPermissions", "title") : 'Insufficient Permissions!')
+                    .setDescription(this.getCustomLocale("userPermissions", "description") ? this.getCustomLocale("userPermissions", "description").replace("{missingUserPermissions}", missingUserPermissions.join(', ')) : `You lack following permissions to use this command: **${missingUserPermissions.join(', ')}**`)
                 ).catch((embedSendError) => {
-                    message.channel.createMessage(command.userPermissions.description ? command.userPermissions.description.replace("{missingUserPermissions}", missingUserPermissions.join(', ')) : `You lack following permissions to use this command: **${missingUserPermissions.join(', ')}**`).catch((messageSendError) => {
+                    message.channel.createMessage(this.getCustomLocale("userPermissions", "description") ? this.getCustomLocale("userPermissions", "description").replace("{missingUserPermissions}", missingUserPermissions.join(', ')) : `You lack following permissions to use this command: **${missingUserPermissions.join(', ')}**`).catch((messageSendError) => {
                         Logger.warning('MUTED', `Can't send messages in #${message.channel.name} (${message.channel.id})`);
                     });
                 });
@@ -76,18 +92,18 @@ class MessageHandler {
         }
 
         /* Check if the command is restricted to the bot owner */
-        if (command.owner && command.owner.enable && !this.chariot.chariotOptions.chariotConfig.owner.includes(message.author.id)) {
-            return message.channel.createMessage(command.owner.message ? command.owner.message : "Insufficient permissions!");
+        if (command.owner && !this.chariot.chariotOptions.chariotConfig.owner.includes(message.author.id)) {
+            return message.channel.createMessage(this.getCustomLocale("owner") ? this.getCustomLocale("owner") : "Insufficient permissions!");
         }
 
         /* Check if an NSFW command is only used in an NSFW channel */
         if (message.channel.type === 0) {
-            if (command.nsfw && command.nsfw.enable && !message.channel.nsfw) {
+            if (command.nsfw && !message.channel.nsfw) {
                 return message.channel.createEmbed(new Embed()
                     .setColor('RED')
-                    .setTitle(command.nsfw.message ? command.nsfw.replace("{command}", command.name) : `Command **${command.name}** is only available in NSFW channels!`)
+                    .setTitle(this.getCustomLocale("nsfw") ? this.getCustomLocale("nsfw").replace("{command}", command.name) : `Command **${command.name}** is only available in NSFW channels!`)
                 ).catch((embedSendError) => {
-                    message.channel.createMessage(command.nsfw.message ? command.nsfw.message.replace("{command}", command.name) : `Command **${command.name}** is only available in NSFW channels!`).catch((messageSendError) => {
+                    message.channel.createMessage(this.getCustomLocale("nsfw") ? this.getCustomLocale("nsfw").replace("{command}", command.name) : `Command **${command.name}** is only available in NSFW channels!`).catch((messageSendError) => {
                         Logger.warning('MUTED', `Can't send messages in #${message.channel.name} (${message.channel.id})`);
                     });
                 });
@@ -95,16 +111,15 @@ class MessageHandler {
         }
 
         /* Command Cooldowns */
-       if (command.cooldown) {
         if (!this.cooldowns.has(command.name)) {
             this.cooldowns.set(command.name, new Collection());
         }
 
         const now = Date.now();
         const timestamps = this.cooldowns.get(command.name);
-        const cooldownAmount = (command.cooldown.time || 0) * 1000;
-        
-        if (timestamps.has(message.author.id) ) {
+        const cooldownAmount = (command.cooldown || 0) * 1000;
+
+        if (timestamps.has(message.author.id)) {
             const expirationTime = timestamps.get(message.author.id) + cooldownAmount;
 
             if (now < expirationTime) {
@@ -113,18 +128,17 @@ class MessageHandler {
 
                 return message.channel.createEmbed(new Embed()
                     .setColor(this.chariot.chariotOptions.chariotConfig.primaryColor || 'RANDOM')
-                    .setTitle(command.cooldown.message ? command.cooldown.message.replace("{timeLeft}", timeLeft).replace("{timeLeftFormatted}". timeLeftFormatted).replace("{command}", command.name) : `Please wait **${timeLeftFormatted}** before using **${command.name}** again`)
+                    .setTitle(this.getCustomLocale("cooldown") ? this.getCustomLocale("cooldown").replace("{timeLeft}", Math.round(timeLeft)).replace("{timeLeftFormatted}".timeLeftFormatted).replace("{command}", command.name) : `Please wait **${timeLeftFormatted}** before using **${command.name}** again`)
                 ).catch((embedSendError) => {
-                    message.channel.createMessage(command.command ? command.cooldown.message.replace("{timeLeft}", timeLeft).replace("{timeLeftFormatted}". timeLeftFormatted).replace("{command}", command.name) : `Please wait **${timeLeftFormatted}** before using **${command.name}** again`).catch((messageSendError) => {
-                            Logger.warning('MUTED', `Can't send messages in #${message.channel.name} (${message.channel.id})`);
-                        });
+                    message.channel.createMessage(this.getCustomLocale("cooldown") ? this.getCustomLocale("cooldown").replace("{timeLeft}", Math.round(timeLeft)).replace("{timeLeftFormatted}".timeLeftFormatted).replace("{command}", command.name) : `Please wait **${timeLeftFormatted}** before using **${command.name}** again`).catch((messageSendError) => {
+                        Logger.warning('MUTED', `Can't send messages in #${message.channel.name} (${message.channel.id})`);
                     });
-                }
+                });
             }
+        }
 
-            timestamps.set(message.author.id, now);
-            setTimeout(() => timestamps.delete(message.author.id), cooldownAmount);
-       }
+        timestamps.set(message.author.id, now);
+        setTimeout(() => timestamps.delete(message.author.id), cooldownAmount);
 
         const next = () => {
             if (commandArguments.length && command.subcommands) {
@@ -169,7 +183,7 @@ class MessageHandler {
                 await command.runPreconditions(message, commandArguments, this.chariot, next);
             } else {
                 next();
-            } 
+            }
         } catch (chariotCommandExecutionError) {
             Logger.error('COMMAND EXECUTION ERROR', `Command ${command.name} couldn't be executed because of: ${chariotCommandExecutionError}`);
         }
